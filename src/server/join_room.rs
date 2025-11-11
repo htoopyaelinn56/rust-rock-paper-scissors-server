@@ -29,7 +29,7 @@ async fn handle_join_room(room_id: String, socket: WebSocket, rooms: crate::serv
                 success: false,
                 room_id: Some(room_id.clone()),
                 message: Some("Room is full (max 2 players)".into()),
-                my_id: None,
+                my_id: Some(client_id.to_string()),
             };
             if let Ok(json) = serde_json::to_string(&response) {
                 let _ = sender.send(Message::Text(json.into())).await;
@@ -39,14 +39,13 @@ async fn handle_join_room(room_id: String, socket: WebSocket, rooms: crate::serv
         }
         clients.insert(client_id, tx.clone());
 
-        // Broadcast join message to all other clients in room as JSON
+        // Broadcast join message to all clients in room as JSON (include recipient's my_id)
         for (id, client_tx) in clients.iter() {
-            let my_id = if *id == client_id { Some(client_id.to_string()) } else { None };
             let response = JoinRoomResponse {
                 success: true,
                 room_id: Some(room_id.clone()),
                 message: Some(format!("Client {:?} joined room {}", client_id, room_id).into()),
-                my_id,
+                my_id: Some(id.to_string()),
             };
             if let Ok(json) = serde_json::to_string(&response) {
                 let _ = client_tx.send(json);
@@ -94,12 +93,12 @@ async fn handle_join_room(room_id: String, socket: WebSocket, rooms: crate::serv
         if let Some(clients) = rooms_guard.get_mut(&room_id) {
             clients.remove(&client_id);
             println!("Client {:?} left room {}", client_id, room_id);
-            for (_id, client_tx) in clients.iter() {
+            for (id, client_tx) in clients.iter() {
                 let response = JoinRoomResponse {
                     success: true,
                     room_id: Some(room_id.clone()),
                     message: Some(format!("Client {:?} left room {}", client_id, room_id)),
-                    my_id: None,
+                    my_id: Some(id.to_string()),
                 };
                 if let Ok(json) = serde_json::to_string(&response) {
                     let _ = client_tx.send(json);
