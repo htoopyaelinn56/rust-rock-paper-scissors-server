@@ -5,6 +5,7 @@ use futures::{SinkExt, StreamExt};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use uuid::Uuid;
+use crate::server::responses::JoinRoomResponse;
 
 pub async fn join_room(Path(room_id): Path<String>, ws: WebSocketUpgrade, State(rooms): State<crate::server::server::Rooms>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_join_room(room_id, socket, rooms))
@@ -23,17 +24,31 @@ async fn handle_join_room(room_id: String, socket: WebSocket, rooms: crate::serv
         let mut rooms_guard = rooms.lock().await;
         let clients = rooms_guard.entry(room_id.clone()).or_insert_with(HashMap::new);
         if clients.len() >= 2 {
-            // Room is full: inform client and close connection
-            let _ = sender.send(Message::Text("Room is full (max 2 players)".into())).await;
+            // Room is full: inform client with JSON and close connection
+            let response = JoinRoomResponse {
+                success: false,
+                room_id: Some(room_id.clone()),
+                error_message: Some("Room is full (max 2 players)".into()),
+            };
+            if let Ok(json) = serde_json::to_string(&response) {
+                let _ = sender.send(Message::Text(json.into())).await;
+            }
             let _ = sender.send(Message::Close(None)).await;
             return;
         }
         clients.insert(client_id, tx.clone());
 
-        // Broadcast join message to all other clients in room
+        // Broadcast join message to all other clients in room as JSON
         for (id, client_tx) in clients.iter() {
             if *id != client_id {
-                let _ = client_tx.send(format!("Client {:?} joined room {}", client_id, room_id));
+                let response = JoinRoomResponse {
+                    success: true,
+                    room_id: Some(room_id.clone()),
+                    error_message: None,
+                };
+                if let Ok(json) = serde_json::to_string(&response) {
+                    let _ = client_tx.send(json);
+                }
             }
         }
     }
