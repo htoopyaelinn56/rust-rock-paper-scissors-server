@@ -18,10 +18,16 @@ async fn handle_join_room(room_id: String, socket: WebSocket, rooms: crate::serv
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
     let client_id = Uuid::new_v4();
 
-    // Add client to the specified room
+    // Validate and add client to the specified room (max 2 players)
     {
         let mut rooms_guard = rooms.lock().await;
         let clients = rooms_guard.entry(room_id.clone()).or_insert_with(HashMap::new);
+        if clients.len() >= 2 {
+            // Room is full: inform client and close connection
+            let _ = sender.send(Message::Text("Room is full (max 2 players)".into())).await;
+            let _ = sender.send(Message::Close(None)).await;
+            return;
+        }
         clients.insert(client_id, tx.clone());
 
         // Broadcast join message to all other clients in room
