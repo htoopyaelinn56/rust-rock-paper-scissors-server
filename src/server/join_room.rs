@@ -5,14 +5,14 @@ use futures::{SinkExt, StreamExt};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use uuid::Uuid;
-use crate::server::responses::JoinRoomResponse;
+use crate::server::responses::{JoinRoomResponse, RoomInfo, RoomListResponse};
 
-pub async fn join_room(Path(room_id): Path<String>, ws: WebSocketUpgrade, State(rooms): State<crate::server::server::Rooms>) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_join_room(room_id, socket, rooms))
+pub async fn join_room(Path(room_id): Path<String>, ws: WebSocketUpgrade, State(state): State<crate::server::server::SharedState>) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_join_room(room_id, socket, state))
 }
 
 // Handle the actual WebSocket connection
-async fn handle_join_room(room_id: String, socket: WebSocket, rooms: crate::server::server::Rooms) {
+async fn handle_join_room(room_id: String, socket: WebSocket, state: crate::server::server::SharedState) {
     let (mut sender, mut receiver) = socket.split();
 
     // Create a channel to send messages to this client
@@ -21,8 +21,8 @@ async fn handle_join_room(room_id: String, socket: WebSocket, rooms: crate::serv
 
     // Validate and add client to the specified room (max 2 players)
     {
-        let mut rooms_guard = rooms.lock().await;
-        let clients = rooms_guard.entry(room_id.clone()).or_insert_with(HashMap::new);
+        let mut app = state.lock().await;
+        let clients = app.rooms.entry(room_id.clone()).or_insert_with(HashMap::new);
         if clients.len() >= 2 {
             // Room is full: inform client with JSON and close connection
             let response = JoinRoomResponse {
@@ -51,6 +51,13 @@ async fn handle_join_room(room_id: String, socket: WebSocket, rooms: crate::serv
                 let _ = client_tx.send(json);
             }
         }
+
+        // Notify room watchers about updated rooms list
+        let rooms_snapshot: Vec<RoomInfo> = app.rooms.iter().map(|(rid, cs)| RoomInfo { room_id: rid.clone(), client_count: cs.len() }).collect();
+        let payload = serde_json::to_string(&RoomListResponse { rooms: rooms_snapshot }).unwrap_or_else(|_| "{}".into());
+        for (_wid, watcher_tx) in app.room_watchers.iter() {
+            let _ = watcher_tx.send(payload.clone());
+        }
     }
 
     println!("Client {:?} joined room {}", client_id, room_id);
@@ -65,14 +72,14 @@ async fn handle_join_room(room_id: String, socket: WebSocket, rooms: crate::serv
     });
 
     // Task to receive messages from this client
-    let rooms_clone = rooms.clone();
+    let state_clone = state.clone();
     let room_id_clone = room_id.clone();
     let receive_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = receiver.next().await {
             if let Message::Text(text) = msg {
                 // Broadcast to all clients in this room only
-                let rooms_locked = rooms_clone.lock().await;
-                if let Some(clients) = rooms_locked.get(&room_id_clone) {
+                let app = state_clone.lock().await;
+                if let Some(clients) = app.rooms.get(&room_id_clone) {
                     for (_, client_tx) in clients.iter() {
                         let _ = client_tx.send(text.clone().to_string());
                     }
@@ -89,8 +96,8 @@ async fn handle_join_room(room_id: String, socket: WebSocket, rooms: crate::serv
 
     // Remove client from room on disconnect
     {
-        let mut rooms_guard = rooms.lock().await;
-        if let Some(clients) = rooms_guard.get_mut(&room_id) {
+        let mut app = state.lock().await;
+        if let Some(clients) = app.rooms.get_mut(&room_id) {
             clients.remove(&client_id);
             println!("Client {:?} left room {}", client_id, room_id);
             for (id, client_tx) in clients.iter() {
@@ -106,8 +113,14 @@ async fn handle_join_room(room_id: String, socket: WebSocket, rooms: crate::serv
             }
             // Remove room entirely if empty
             if clients.is_empty() {
-                rooms_guard.remove(&room_id);
+                app.rooms.remove(&room_id);
             }
+        }
+        // Notify room watchers about updated rooms list
+        let rooms_snapshot: Vec<RoomInfo> = app.rooms.iter().map(|(rid, cs)| RoomInfo { room_id: rid.clone(), client_count: cs.len() }).collect();
+        let payload = serde_json::to_string(&RoomListResponse { rooms: rooms_snapshot }).unwrap_or_else(|_| "{}".into());
+        for (_wid, watcher_tx) in app.room_watchers.iter() {
+            let _ = watcher_tx.send(payload.clone());
         }
     }
 }

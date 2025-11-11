@@ -1,3 +1,5 @@
 pub mod server;
-mod join_room;
-mod responses;
+pub mod join_room;
+pub mod rooms_stream;
+pub mod responses;
+mod utils;
