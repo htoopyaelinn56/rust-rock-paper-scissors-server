@@ -4,7 +4,6 @@ use axum::response::IntoResponse;
 use futures::{SinkExt, StreamExt};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
-use tracing_subscriber::fmt::format;
 use uuid::Uuid;
 use crate::server::responses::{JoinRoomResponse, RoomInfo, RoomListResponse};
 
