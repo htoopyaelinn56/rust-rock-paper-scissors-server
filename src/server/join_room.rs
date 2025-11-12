@@ -4,8 +4,11 @@ use axum::response::IntoResponse;
 use futures::{SinkExt, StreamExt};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
+use tracing_subscriber::fmt::format;
 use uuid::Uuid;
 use crate::server::responses::{JoinRoomResponse, RoomInfo, RoomListResponse};
+
+const MAX_PLAYERS_PER_ROOM: usize = 10;
 
 pub async fn join_room(Path(room_id): Path<String>, ws: WebSocketUpgrade, State(state): State<crate::server::server::SharedState>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_join_room(room_id, socket, state))
@@ -19,16 +22,16 @@ async fn handle_join_room(room_id: String, socket: WebSocket, state: crate::serv
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
     let client_id = Uuid::new_v4();
 
-    // Validate and add client to the specified room (max 2 players)
+    // Validate and add client to the specified room
     {
         let mut app = state.lock().await;
         let clients = app.rooms.entry(room_id.clone()).or_insert_with(HashMap::new);
-        if clients.len() >= 2 {
+        if clients.len() >= MAX_PLAYERS_PER_ROOM {
             // Room is full: inform client with JSON and close connection
             let response = JoinRoomResponse {
                 success: false,
                 room_id: Some(room_id.clone()),
-                message: Some("Room is full (max 2 players)".into()),
+                message: Some(format!("Room is full (max {} players)", MAX_PLAYERS_PER_ROOM).into()),
                 my_id: Some(client_id.to_string()),
             };
             if let Ok(json) = serde_json::to_string(&response) {
