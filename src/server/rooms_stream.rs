@@ -23,7 +23,7 @@ async fn handle_rooms_stream(socket: WebSocket, state: SharedState) {
         let snapshot: Vec<RoomInfo> = app
             .rooms
             .iter()
-            .map(|(room_id, clients)| RoomInfo { room_id: room_id.clone(), client_count: clients.len() })
+            .map(|(room_id, room)| RoomInfo { room_id: room_id.clone(), client_count: room.clients.len() })
             .collect();
         let init_msg = serde_json::to_string(&RoomListResponse { rooms: snapshot }).unwrap_or_else(|_| "{}".into());
         if sender.send(Message::Text(init_msg.into())).await.is_err() {

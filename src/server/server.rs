@@ -1,6 +1,6 @@
 use axum::routing::get;
 use axum::Router;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::{mpsc, Mutex};
 use uuid::Uuid;
@@ -10,9 +10,19 @@ use crate::server::{join_room, rooms_stream}; // ensure rooms_stream module is p
 pub(crate) type Tx = mpsc::UnboundedSender<String>;
 pub(crate) type Clients = HashMap<Uuid, Tx>;
 
+// Room state
+pub struct Room {
+    pub clients: Clients,
+    pub game_active: bool,
+    // Stores each player's submitted move for the current round ("rock", "paper", or "scissors")
+    pub moves: HashMap<Uuid, String>,
+    // Current active participants (subset of clients) expected to play this round
+    pub active_players: HashSet<Uuid>,
+}
+
 // Composite application state
 pub struct AppState {
-    pub rooms: HashMap<String, Clients>,
+    pub rooms: HashMap<String, Room>,
     pub room_watchers: HashMap<Uuid, Tx>, // subscribers to room list updates
 }
 
