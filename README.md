@@ -205,26 +205,5 @@ const rws = new WebSocket('ws://localhost:3000/rooms');
 rws.onmessage = (ev) => console.log('rooms update', JSON.parse(ev.data));
 ```
 
-## Notes, edge cases and behavior
 
-- Max players per room: 10. If you try to join a full room the server will send a `JoinRoomResponse` with `success: false` and then close the connection.
-- Starting a game requires at least 2 connected players. If not, you'll receive an `ErrorResponse`.
-- If a player disconnects during an active game the server ends the game and clears round state.
-- The server treats any non-JSON text message as a raw broadcast to the room. JSON messages without a recognized `action` will receive an `ErrorResponse`.
-- Moves are compared only among `active_players` (the subset of clients expected to play the current round). After a `rematch` with `next_players`, only the listed `next_players` are expected to submit moves.
-- The server computes ties when all active players choose the same move or when all three choices are present. When two distinct choices are present, winners are determined by the usual rock-paper-scissors rules.
 
-## Troubleshooting & development
-
-- The server logs to stdout (uses `tracing`).
-- To run in debug mode during development:
-
-```bash
-cargo run
-```
-
-- If you want me to also add a small automated test or a TypeScript client wrapper, tell me and I can add it.
-
----
-
-If anything in this README doesn't match your running server, I can update the docs — tell me which parts you'd like changed or which example clients you prefer (Python, Rust, or TypeScript). 
